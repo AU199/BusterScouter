@@ -79,26 +79,87 @@ class ScoutingHelper:
             pd.DataFrame: One row per team, indexed by team number.
         """
         year, fields = int(eventCode[:4]), DEFAULT_FIELDS if fields is None else fields
-        all_stats = [
-            self.req(
-                self.BASEURLStatbotics
-                + f"/team_year/{int(t.removeprefix('frc'))}/{year}",
-                None,
-            ).json()
-            for t in self.getTeamsAtEvent(eventCode)
-        ]
-        flat = [_flatten(s) for s in all_stats]
-        df = pd.DataFrame(
-            [{f: r[f] for f in fields if f in r} for r in flat] if fields else flat
-        )
-        return df.set_index("team") if "team" in df.columns else df
+        
+        returnDataframe = self.getTeamsEpa(self.getTeamsAtEvent(eventCode).to_list(), year, fields)
+        
+        return returnDataframe  
+
+    def getTeamEPA(
+        self, teamCode:str|int, year: int, fields: list[str] | None = None
+    ) -> pd.DataFrame:
+        """provided a team number and year, this returns a pandas dataframe with all the requested fields
+
+        Args:
+            teamCode (str | int): team number, can be passed in as either "frc#teamnumber#" or the team code
+            year (int): the year must be an integer 
+            fields (list[str] | None): Dot-notation fields to include (e.g. 'epa.total_points.mean').
+                Defaults to DEFAULT_FIELDS. Pass [] for all fields..
+
+        Returns:
+            pd.DataFrame: Dataframe containing all requested fields for the given team. The team in the column 
+        """
+        
+        
+        if (self.safetyCaptain(teamCode,[str,int])):
+            
+            print(type(teamCode))
+            if isinstance(teamCode,str):
+                if "frc" in teamCode:
+                    teamNumber = int(teamCode.removeprefix("frc"))
+                else:
+                    teamNumber = int(teamCode)
+            else: 
+                teamNumber = teamCode
+            allStats = [
+                self.req(
+                    self.BASEURLStatbotics
+                    + f"/team_year/{int(teamNumber)}/{year}",
+                    None,
+                ).json()
+            ]
+            if len(allStats) < 1:
+                Warning(f"The provided team number {teamNumber} is invalid or the team was not active in the given year, please double check the team that was being requested")
+
+            flat = _flatten(allStats[0]) 
+            cols = list(dict.fromkeys(["team"] + fields)) if fields else None
+            teamData = pd.Series({f: flat[f] for f in cols if f in flat} if cols else flat)
+            return teamData.rename(flat['team'])
 
 
+
+    def getTeamsEpa(self, teams: list[str] | list[int], year: int, fields: list[str] | None = None) -> pd.DataFrame:
+        teamsDfRows = []
+        teams.sort()
+        for team in teams:
+            
+            if self.safetyCaptain(team,[str,int]):
+                
+                individualTeamEPADF = self.getTeamEPA(team,year,fields)
+                teamsDfRows.append(individualTeamEPADF)
+            
+            else:
+                Warning(f"A wrong type was passed in for the team code, please double check" )
+                return pd.DataFrame()
+        return pd.DataFrame(teamsDfRows)
+        
+    
+    
+    def safetyCaptain(self,objToBeChecked:object, typeItShouldBe:list[type] | type) -> bool:
+    
+        if isinstance(objToBeChecked, tuple(typeItShouldBe)):
+            return True
+        else:
+            return False
+        
+    
+    
+    
     def req(self, url, headers) -> requests.Response:
         return requests.get(url, headers)
 
 
 if __name__ == "__main__":
+    
     TBAAUTHKEY = open("baller.txt").readline().removesuffix("\n").removeprefix("\n")
 
     scouter = ScoutingHelper(TBAAUTHKEY)
